@@ -12,7 +12,7 @@
 
 int userID;
 //controls child in the fork
-int exit_flag = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0); 
+int *exit_flag;
 
 
 struct ClientMessage{
@@ -35,14 +35,16 @@ void follow(); //Client follows a Leader
 void unfollow(); //Client follows a Leader
 void get_msg(); //Gets saved messages from server
 void send_msg(); //Send a message to followers
-void send(struct ClientMessage *msg); //Sends the ClientMessage to the server
-void recv(); //Receive messages from the server
+void send_to_server(struct ClientMessage *msg); //Sends the ClientMessage to the server
+void recv_from_server(); //Receive messages from the server
 
 
 int main(int argc, char *argv[])
 {
+    exit_flag = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0); 
     signIn();
-    recv();
+    recv_from_server();
+    return(0);
     int sock;                        /* Socket descriptor */
     struct sockaddr_in echoServAddr; /* Echo server address */
     struct sockaddr_in fromAddr;     /* Source address of echo */
@@ -104,44 +106,43 @@ int main(int argc, char *argv[])
 //Sets the userID. Sign in is actually handled by child in fork()
 void signIn()
 {
-	int userID
-	
 	printf("Please Enter Your User ID: ");
-	scanf("%d",*userID);
+	scanf("%d",&userID);
 	printf("Your ID is: %d\n",userID);
 }
 
 //Client Signs Out. Sets exit_flag to stop receiving, sends a sign out request
 void signOut()
 {
-	printf("Signing out\n");
+	
 	struct ClientMessage c;
 	c.request_Type = 5;
 	c.UserID = userID;
 	*exit_flag = -1;
-	send(&c);
+	printf("Signing out\n");
+	send_to_server(&c);
 } 
 
 void follow() //Client follows a Leader. 
 {
-	printf("Who would you like to follow:/n");
+	printf("Who would you like to follow:\n");
 	struct ClientMessage c;
 	c.request_Type = 3;
 	c.UserID = userID;
 	scanf("%d", &c.LeaderID);
-	printf("You have followed %d", c.LeaderID);
-	send(&c);
+	printf("You have followed %d\n", c.LeaderID);
+	send_to_server(&c);
 }
 //Client unfollows a Leader
 void unfollow()
 {
-	printf("Who would you like to unfollow:/n");
+	printf("Who would you like to unfollow:\n");
 	struct ClientMessage c;
 	c.request_Type = 4;
 	c.UserID = userID;
 	scanf("%d", &c.LeaderID);
-	printf("You have unfollowed %d", c.LeaderID);
-	send(&c);
+	printf("You have unfollowed %d\n", c.LeaderID);
+	send_to_server(&c);
 } 
 //This sends a request to send stored messages to the client
 void get_msg()
@@ -149,30 +150,72 @@ void get_msg()
 	struct ClientMessage c;
 	c.request_Type = 2;
 	c.UserID = userID;
-	send(&c);
+	send_to_server(&c);
 }
 //Send a message to followers
 void send_msg()
 {
+	struct ClientMessage c;
 	printf("Enter the message you want to send:\n");
-	char *msg;
-	scanf("$s",msg)
-	if(strlen(msg) >= 100)
+	scanf("%s",c.message);
+	if(strlen(c.message) >= 100)
 	{
 		printf("Your message must be under 100 characters\n");
 		return;
 	}
-	 struct ClientMessage c;
+
 	 c.UserID = userID;
 	 c.request_Type = 1;
-	 strcpy(c.message,msg);
-	 send(&c);
+	 send_to_server(&c);
 } 
-void send(struct ClientMessage *msg)
+void send_to_server(struct ClientMessage *msg)
 {
-	printf("Sending message type %d from %d", *msg.request_Type,*msg.userID);
+	printf("Sending message type %d from %d\n",(*msg).request_Type,(*msg).UserID);
 } //Sends the ClientMessage to the server
-void recv()
+void recv_from_server()
 {
-
+	int selection;
+	//Loop with switch statement drives the user interface
+	//User keeps entering options until they quit
+	do
+	{
+	printf("Please Select an Option\n");
+	printf("1-Follow a User\n");
+	printf("2-Unfollow a User\n");
+	printf("3-Get Messages\n");
+	printf("4-Send Message\n");
+	printf("5-Sign Out\n");
+	scanf("%d",&selection);
+	
+	switch(selection)
+	{
+		case 1: //follow a user
+		{
+			follow();
+			break;
+		}
+		case 2: //unfollow a user
+		{
+			unfollow();
+			break;
+		}
+		case 3: //Get messages
+		{
+			get_msg();
+			break;
+		}
+		case 4: //Send message
+		{
+			send_msg();
+			break;
+		}
+		case 5: //log out
+		{
+			signOut();
+			break;
+		}		
+		default: //Error for incorrect entries
+			printf("Your entry is invalid. Please try again\n");
+	}
+	}while(selection != 5); //do until user logs out
 } //Receive messages from the server
