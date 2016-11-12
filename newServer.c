@@ -47,9 +47,13 @@ int main(int argc, char *argv[])
     struct ServerMessage server_MSG;
     
     client_MSG.UserID = 1234;
+    client_MSG.LeaderID = 2345;
     echoClntAddr.sin_addr.s_addr = inet_addr("192.123.123.123");
     echoClntAddr.sin_port   = htons(22345);
     signIn(&client_MSG,&echoClntAddr);
+    signOut(&client_MSG);
+    follow(&client_MSG);
+    unfollow(&client_MSG);
     return 0;
     if (argc != 2)         /* Test for correct number of parameters */
     {
@@ -97,8 +101,8 @@ void signIn(struct ClientMessage *msg, struct sockaddr_in *ClntAddr)
    sqlite3 *db;
    char *zErrMsg = 0;
    int rc;
-   char sql[1024];
-
+   char sql[100];
+   memset(sql, 0, sizeof(char)*100);
    /* Open database */
    rc = sqlite3_open("message.db", &db);
    if( rc ){
@@ -114,17 +118,14 @@ void signIn(struct ClientMessage *msg, struct sockaddr_in *ClntAddr)
     char userstring[10];
     sprintf(userstring,"%d",(*msg).UserID);
     strcat(sql,userstring);
-    printf("user\n");
     strcat(sql, ",\"");
     strcat(sql, inet_ntoa((*ClntAddr).sin_addr));
     strcat(sql, "\",");
-    printf("address\n");
     char userport[10];
     sprintf(userport,"%hd",(*ClntAddr).sin_port);
     strcat(sql, userport);
     strcat(sql, ");");
-    printf("port\n");
-    printf("%s",sql);
+    printf("%s\n",sql);
    /* Execute SQL statement */
    rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
    if( rc != SQLITE_OK ){
@@ -134,12 +135,128 @@ void signIn(struct ClientMessage *msg, struct sockaddr_in *ClntAddr)
    else{
       fprintf(stdout, "User %d has signed in\n", (*msg).UserID);
    }
+   
    sqlite3_close(db);
 }
-// void signOut(struct ClientMessage *msg); //Client Signs Out
-// void follow(struct ClientMessage *msg); //Client follows a Leader
-// void unfollow(struct ClientMessage *msg); //Client follows a Leader
-// void get_msg(struct ClientMessage *msg); //Client Gets saved messages from server
-// void send_msg(struct ClientMessage *msg); //Client Send a message to followers
+//Client Signs Out
+void signOut(struct ClientMessage *msg)
+{
+   sqlite3 *db;
+   char *zErrMsg = 0;
+   int rc;
+   char sql[100];
+   memset(sql, 0, sizeof(char)*100);
+   /* Open database */
+   rc = sqlite3_open("message.db", &db);
+   if( rc ){
+      fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+      return;
+   }
+   else{
+      fprintf(stderr, "Opened database successfully\n");
+   }
+   /* Create SQL statement */
+    strcat(sql,"DELETE FROM SignIn WHERE USR=");
+    char userstring[10];
+    sprintf(userstring,"%d",(*msg).UserID);
+    strcat(sql,userstring);
+    strcat(sql, ";");
+    printf("%s\n",sql);
+   /* Execute SQL statement */
+   rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
+   if( rc != SQLITE_OK ){
+      fprintf(stderr, "SQL error: %s\n", zErrMsg);
+      sqlite3_free(zErrMsg);
+   }
+   else{
+      fprintf(stdout, "User %d has signed out\n", (*msg).UserID);
+   }
+   sqlite3_close(db);
+}
+//Client follows a Leader
+void follow(struct ClientMessage *msg)
+{
+   sqlite3 *db;
+   char *zErrMsg = 0;
+   int rc;
+   char sql[100];
+   memset(sql, 0, sizeof(char)*100 );
+   /* Open database */
+   rc = sqlite3_open("message.db", &db);
+   if( rc ){
+      fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+      return;
+   }
+   else{
+      fprintf(stderr, "Opened database successfully\n");
+   }
+
+   /* Create SQL statement */
+    strcat(sql,"INSERT INTO Follow (USR,LDR)VALUES (");
+    char userstring[10];
+    char leaderstring[10];
+    sprintf(userstring,"%d",(*msg).UserID);
+    strcat(sql,userstring);
+    strcat(sql, ",");
+    sprintf(leaderstring,"%d",(*msg).LeaderID);
+    strcat(sql,leaderstring);
+    strcat(sql, ");");
+    printf("%s\n",sql);
+   /* Execute SQL statement */
+   	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
+   	if( rc != SQLITE_OK ){
+      fprintf(stderr, "SQL error: %s\n", zErrMsg);
+      sqlite3_free(zErrMsg);
+   }
+   else{
+      fprintf(stdout, "User %d has followed %d\n", (*msg).UserID, (*msg).LeaderID);
+   }
+   
+   sqlite3_close(db);
+}
+
+void unfollow(struct ClientMessage *msg)
+{
+   sqlite3 *db;
+   char *zErrMsg = 0;
+   int rc;
+   char sql[100];
+   memset(sql, 0, sizeof(char)*100 );
+   /* Open database */
+   rc = sqlite3_open("message.db", &db);
+   if( rc ){
+      fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+      return;
+   }
+   else{
+      fprintf(stderr, "Opened database successfully\n");
+   }
+
+   /* Create SQL statement */
+    strcat(sql,"DELETE FROM follow WHERE USR= ");
+    char userstring[10];
+    sprintf(userstring,"%d",(*msg).UserID);
+    strcat(sql,userstring);
+    strcat(sql, " AND LDR= ");
+    char leaderstring[10];
+    sprintf(leaderstring,"%d",(*msg).LeaderID);
+    strcat(sql,leaderstring);
+    strcat(sql, ";");
+    printf("%s\n",sql);
+   /* Execute SQL statement */
+   	rc = sqlite3_exec(db, sql, 0, 0, &zErrMsg);
+   	if( rc != SQLITE_OK ){
+      fprintf(stderr, "SQL error: %s\n", zErrMsg);
+      sqlite3_free(zErrMsg);
+   }
+   else{
+      fprintf(stdout, "User %d has unfollowed %d\n", (*msg).UserID, (*msg).LeaderID);
+   }
+   
+   sqlite3_close(db);
+}
+   //Client unfollows a Leader
+// void get_msg(struct ClientMessage *msg); //Server Gets saved messages for client
+// void send_msg(struct ClientMessage *msg); //Server Sends a message to followers from a leader
 // void send_to_client(struct ServerMessage *msg); //Sends the ClientMessage to the server
 // void recv_from_client(struct ClientMessage *msg); //Decides which request is performed
