@@ -30,9 +30,14 @@ void signOut(struct ClientMessage *msg); //Client Signs Out
 void follow(struct ClientMessage *msg); //Client follows a Leader
 void unfollow(struct ClientMessage *msg); //Client follows a Leader
 void get_msg(struct ClientMessage *msg); //Client Gets saved messages from server
-void send_msg(struct ClientMessage *msg); //Client Send a message to followers
-void send_to_client(struct ServerMessage *msg); //Sends the ClientMessage to the server
+void send_msg(struct ClientMessage *msg); //Client Sends a message to followers
+void send_to_client(struct sockaddr_in *clientAddr, struct ServerMessage *msg); //Sends the ClientMessage to the server
 void recv_from_client(struct ClientMessage *msg); //Decides which request is performed
+static int build_stored(void *NotUsed, int argc, char **argv, char **azColName);
+static int build_active(void *message, int argc, char **argv, char **azColName);
+static int store_msg(void *message, int argc, char **argv, char **azColName);
+
+char stored_messages[5096];
 
 int main(int argc, char *argv[])
 {
@@ -48,12 +53,15 @@ int main(int argc, char *argv[])
     
     client_MSG.UserID = 1234;
     client_MSG.LeaderID = 2345;
+    strcpy(client_MSG.message, "Hello Fancy");
     echoClntAddr.sin_addr.s_addr = inet_addr("192.123.123.123");
     echoClntAddr.sin_port   = htons(22345);
-    signIn(&client_MSG,&echoClntAddr);
     signOut(&client_MSG);
+    signIn(&client_MSG,&echoClntAddr);
     follow(&client_MSG);
     unfollow(&client_MSG);
+    get_msg(&client_MSG);
+    send_msg(&client_MSG);
     return 0;
     if (argc != 2)         /* Test for correct number of parameters */
     {
@@ -214,7 +222,7 @@ void follow(struct ClientMessage *msg)
    
    sqlite3_close(db);
 }
-
+//Client unfollows a Leader
 void unfollow(struct ClientMessage *msg)
 {
    sqlite3 *db;
@@ -252,11 +260,173 @@ void unfollow(struct ClientMessage *msg)
    else{
       fprintf(stdout, "User %d has unfollowed %d\n", (*msg).UserID, (*msg).LeaderID);
    }
-   
    sqlite3_close(db);
 }
-   //Client unfollows a Leader
-// void get_msg(struct ClientMessage *msg); //Server Gets saved messages for client
-// void send_msg(struct ClientMessage *msg); //Server Sends a message to followers from a leader
-// void send_to_client(struct ServerMessage *msg); //Sends the ClientMessage to the server
+//Server Gets saved messages for client
+void get_msg(struct ClientMessage *msg)
+{
+	sqlite3 *db;
+	char *zErrMsg = 0;
+	int rc;
+	char sql[512];
+	char rm_msg[512];
+	memset(sql, 0, sizeof(char)*512 );
+	memset(rm_msg, 0, sizeof(char)*512 );
+
+	/* Open database */
+	rc = sqlite3_open("message.db", &db);
+	if( rc ){
+	  fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+	  return;
+	}else{
+	  fprintf(stderr, "Opened database successfully\n");
+	}
+
+	/* Create SQL statement */
+	strcat(sql,"SELECT M.LDR, M.MSG, S.IP, S.PORT FROM MSG M, SignIn S WHERE S.USR = M.USR AND S.USR = ");
+    char userstring[10];
+    sprintf(userstring,"%d",(*msg).UserID);
+    strcat(sql,userstring);
+    strcat(sql, ";");
+    printf("%s\n",sql);
+    strcat(rm_msg, "DELETE FROM MSG WHERE USR= ");
+    strcat(rm_msg, userstring);
+    strcat(rm_msg, ";");
+    printf("%s\n",rm_msg);
+    
+	/* Execute SQL statement */
+	rc = sqlite3_exec(db, sql, build_stored, 0, &zErrMsg);
+	if( rc != SQLITE_OK ){
+	  fprintf(stderr, "SQL error: %s\n", zErrMsg);
+	  sqlite3_free(zErrMsg);
+	}else{
+	  fprintf(stdout, "Stored messages sent to %s\n", userstring);
+	}
+	rc = sqlite3_exec(db, rm_msg, 0, 0, &zErrMsg);
+	if( rc != SQLITE_OK ){
+	  fprintf(stderr, "SQL error: %s\n", zErrMsg);
+	  sqlite3_free(zErrMsg);
+	}else{
+	  fprintf(stdout, "Deleted stored messages for %s\n", userstring);
+	}
+	sqlite3_close(db);
+}
+/*This builds a server message and a sockaddr_in struct to send the client their messages
+  Each message is packaged and sent to the sender function until all messages have been sent*/
+static int build_stored(void *NotUsed, int argc, char **argv, char **azColName){
+	struct sockaddr_in clientAddr;
+	struct ServerMessage server_MSG;
+	memset(&clientAddr, 0, sizeof(clientAddr));   /* Zero out structure */
+	memset(&server_MSG, 0, sizeof(server_MSG));   /* Zero out structure */
+	clientAddr.sin_family = AF_INET;                /* Internet address family */
+	clientAddr.sin_addr.s_addr = inet_addr(argv[2]); /* Client's IP Address */
+	clientAddr.sin_port = atoi(argv[3]);         /* Client's port */
+	server_MSG.LeaderID = atoi(argv[0]);                 /* Who MSG is from */
+	strcpy(server_MSG.message, argv[1]);                  /* The Message */
+	send_to_client(&clientAddr, &server_MSG);
+	printf("%s %s %s %s\n",argv[0],argv[1],argv[2],argv[3]);
+	  //printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+	return 0;
+}
+//Client requests messages to be sent to their followers
+void send_msg(struct ClientMessage *msg)
+{
+	sqlite3 *db;
+	char *zErrMsg = 0;
+	int rc;
+	char sql[512];
+	memset(sql, 0, sizeof(char)*512);
+	char stored_sql[512];
+	memset(stored_sql, 0, sizeof(char)*512);
+	/* Open database */
+	rc = sqlite3_open("message.db", &db);
+	if( rc ){
+	  fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+	  return;
+	}else{
+	  fprintf(stderr, "Opened database successfully\n");
+	}
+
+	/* Create SQL statement */
+	strcat(sql,"SELECT S.USR, F.LDR, S.IP, S.PORT FROM SignIn S, Follow F WHERE F.LDR = ");
+    char userstring[10];
+    sprintf(userstring,"%d",(*msg).UserID);
+    strcat(sql,userstring);
+    strcat(sql, " AND S.USR = F.USR;");
+    printf("%s\n",sql);
+    strcat(stored_sql, "SELECT F.USR, F.LDR FROM Follow F WHERE F.LDR = ");
+    strcat(stored_sql,userstring);
+    strcat(stored_sql," AND F.USR NOT IN (SELECT S.USR FROM SignIn S);");
+    
+	/* Execute SQL statement */
+	rc = sqlite3_exec(db, sql, build_active, (void*)(*msg).message, &zErrMsg);
+	if( rc != SQLITE_OK ){
+	  fprintf(stderr, "SQL error: %s\n", zErrMsg);
+	  sqlite3_free(zErrMsg);
+	}else{
+	  fprintf(stdout, "Messages sent from %s\n", userstring);
+	}
+	memset(stored_messages, 0, sizeof(char)*5096);
+	rc = sqlite3_exec(db, stored_sql, store_msg, (void*)(*msg).message, &zErrMsg);
+	if( rc != SQLITE_OK ){
+	  fprintf(stderr, "SQL error: %s\n", zErrMsg);
+	  sqlite3_free(zErrMsg);
+	}else{
+	  fprintf(stdout, "Messages ready to store from %s\n", userstring);
+	}
+	rc = sqlite3_exec(db, stored_messages, 0, 0, &zErrMsg);
+	if( rc != SQLITE_OK ){
+	  fprintf(stderr, "SQL error: %s\n", zErrMsg);
+	  sqlite3_free(zErrMsg);
+	}else{
+	  fprintf(stdout, "Messages stored from %s\n", userstring);
+	}
+	sqlite3_close(db);
+}
+static int build_active(void *message, int argc, char **argv, char **azColName){
+	struct sockaddr_in clientAddr;
+	struct ServerMessage server_MSG;
+	memset(&clientAddr, 0, sizeof(clientAddr));   /* Zero out structure */
+	memset(&server_MSG, 0, sizeof(server_MSG));   /* Zero out structure */
+	clientAddr.sin_family = AF_INET;                /* Internet address family */
+	clientAddr.sin_addr.s_addr = inet_addr(argv[2]); /* Client's IP Address */
+	clientAddr.sin_port = atoi(argv[3]);         /* Client's port */
+	server_MSG.LeaderID = atoi(argv[1]);                 /* Who MSG is from */
+	strcpy(server_MSG.message, (char*)message);                  /* The Message */
+	send_to_client(&clientAddr, &server_MSG);
+	printf("to %s from %s\n",argv[0],argv[1]);
+	  //printf("%s = %s\n", azColName[i], argv[i] ? argv[i] : "NULL");
+	return 0;
+}
+static int store_msg(void *message, int argc, char **argv, char **azColName){
+	sqlite3 *db;
+	char *zErrMsg = 0;
+	int rc;
+	char sql[512];
+	memset(sql, 0, sizeof(char)*512);
+	/* Open database */
+	rc = sqlite3_open("message.db", &db);
+	if( rc ){
+	  fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+	  return 0;
+	}else{
+	  fprintf(stderr, "Opened database successfully\n");
+	}
+
+	/* Create SQL statement */
+	strcat(sql,"INSERT INTO MSG (USR,LDR,MSG) VALUES (");
+    strcat(sql,argv[0]);
+    strcat(sql, ",");
+        strcat(sql,argv[1]);
+    strcat(sql, ",\"");
+    strcat(sql,(char*)message);
+    strcat(sql, "\"); ");
+    printf("%s\n",sql);
+    strcat(stored_messages,sql);
+	return 0;
+}
+void send_to_client(struct sockaddr_in *clientAddr, struct ServerMessage *msg)
+{
+	printf("Sending Message ");
+}
 // void recv_from_client(struct ClientMessage *msg); //Decides which request is performed
