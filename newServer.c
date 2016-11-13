@@ -418,7 +418,7 @@ static int store_msg(void *message, int argc, char **argv, char **azColName){
 }
 void send_to_client(struct sockaddr_in *clientAddr, struct ServerMessage *msg)
 {
-	sendto(sock, msg, sizeof(msg), 0, (struct sockaddr *)clientAddr, sizeof(*clientAddr));
+	sendto(sock, msg, sizeof(struct ServerMessage), 0, (struct sockaddr *)clientAddr, sizeof(*clientAddr));
 }
 //Decides which request is performed
 void recv_from_client(struct ClientMessage *msg, struct sockaddr_in *ClntAddr)
