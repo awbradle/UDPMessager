@@ -7,8 +7,6 @@
 #include <sqlite3.h> 
 #include <string.h> 
 
-#define ECHOMAX 100     /* Longest string to echo */
-
 //Client Message Structure
 struct ClientMessage{
 	enum {Login, Post, Activate, Subscribe, Unsusbscribe, Logout }
@@ -32,37 +30,34 @@ void unfollow(struct ClientMessage *msg); //Client follows a Leader
 void get_msg(struct ClientMessage *msg); //Client Gets saved messages from server
 void send_msg(struct ClientMessage *msg); //Client Sends a message to followers
 void send_to_client(struct sockaddr_in *clientAddr, struct ServerMessage *msg); //Sends the ClientMessage to the server
-void recv_from_client(struct ClientMessage *msg); //Decides which request is performed
+void recv_from_client(struct ClientMessage *msg,struct sockaddr_in *ClntAddr); //Decides which request is performed
 static int build_stored(void *NotUsed, int argc, char **argv, char **azColName);
 static int build_active(void *message, int argc, char **argv, char **azColName);
 static int store_msg(void *message, int argc, char **argv, char **azColName);
 
-char stored_messages[5096];
-
+char stored_messages[5096]; //String for storing messages query
+int sock;  					//sock is global so that send_to_client and main can use it
+/* Socket */
 int main(int argc, char *argv[])
-{
-    int sock;                        /* Socket */
-    struct sockaddr_in echoServAddr; /* Local address */
-    struct sockaddr_in echoClntAddr; /* Client address */
+{             
+    struct sockaddr_in servAddr; /* Local address */
+    struct sockaddr_in clntAddr; /* Client Address */
     unsigned int cliAddrLen;         /* Length of incoming message */
     struct ClientMessage client_MSG;        /* Buffer for echo string */
     unsigned short echoServPort;     /* Server port */
     int recvMsgSize;                 /* Size of received message */
-    char *echoBuffer;
-    struct ServerMessage server_MSG;
     
-    client_MSG.UserID = 1234;
-    client_MSG.LeaderID = 2345;
-    strcpy(client_MSG.message, "Hello Fancy");
-    echoClntAddr.sin_addr.s_addr = inet_addr("192.123.123.123");
-    echoClntAddr.sin_port   = htons(22345);
-    signOut(&client_MSG);
-    signIn(&client_MSG,&echoClntAddr);
-    follow(&client_MSG);
-    unfollow(&client_MSG);
-    get_msg(&client_MSG);
-    send_msg(&client_MSG);
-    return 0;
+//     client_MSG.UserID = 1234;
+//     client_MSG.LeaderID = 2345;
+//     strcpy(client_MSG.message, "Hello Fancy");
+//     clntAddr.sin_addr.s_addr = inet_addr("192.123.123.123");
+//     clntAddr.sin_port   = htons(22345);
+//     signOut(&client_MSG);
+//     signIn(&client_MSG,&clntAddr);
+//     follow(&client_MSG);
+//     unfollow(&client_MSG);
+//     get_msg(&client_MSG);
+//     send_msg(&client_MSG);
     if (argc != 2)         /* Test for correct number of parameters */
     {
         fprintf(stderr,"Usage:  %s <UDP SERVER PORT>\n", argv[0]);
@@ -76,30 +71,26 @@ int main(int argc, char *argv[])
         DieWithError("socket() failed");
     
     /* Construct local address structure */
-    memset(&echoServAddr, 0, sizeof(echoServAddr));   /* Zero out structure */
-    echoServAddr.sin_family = AF_INET;                /* Internet address family */
-    echoServAddr.sin_addr.s_addr = htonl(INADDR_ANY); /* Any incoming interface */
-    echoServAddr.sin_port = htons(echoServPort);      /* Local port */
+    memset(&servAddr, 0, sizeof(servAddr));   /* Zero out structure */
+    servAddr.sin_family = AF_INET;                /* Internet address family */
+    servAddr.sin_addr.s_addr = htonl(INADDR_ANY); /* Any incoming interface */
+    servAddr.sin_port = htons(echoServPort);      /* Local port */
     
     /* Bind to the local address */
-    if (bind(sock, (struct sockaddr *) &echoServAddr, sizeof(echoServAddr)) < 0)
+    if (bind(sock, (struct sockaddr *) &servAddr, sizeof(servAddr)) < 0)
         DieWithError("bind() failed");
     for (;;) /* Run forever */
-    {
-        /* Set the size of the in-out parameter */
-        cliAddrLen = sizeof(echoClntAddr);
-        
+    {      
+        cliAddrLen = sizeof(clntAddr);
         /* Block until receive message from a client */
-        if ((recvMsgSize = recvfrom(sock, &client_MSG, sizeof(struct ClientMessage), 0,
-                                    (struct sockaddr *) &echoClntAddr, &cliAddrLen)) < 0)
+        if ((recvfrom(sock, &client_MSG, sizeof(struct ClientMessage), 0,
+                                    (struct sockaddr *) &clntAddr, &cliAddrLen)) < 0)
             DieWithError("recvfrom() failed");
         
-        printf("Handling client %s\n", inet_ntoa(echoClntAddr.sin_addr));
-        server_MSG.LeaderID = client_MSG.LeaderID;
-        strcpy(server_MSG.message,"bacon");
-        /* Send received datagram back to the client */
-		sendto(sock, &server_MSG, recvMsgSize, 0, 
-			(struct sockaddr *) &echoClntAddr, sizeof(echoClntAddr));
+        printf("Handling client %s\n", inet_ntoa(clntAddr.sin_addr));
+		/* Handle message */ 
+		recv_from_client(&client_MSG,&clntAddr);
+
     }
     /* NOT REACHED */
 }
@@ -427,6 +418,42 @@ static int store_msg(void *message, int argc, char **argv, char **azColName){
 }
 void send_to_client(struct sockaddr_in *clientAddr, struct ServerMessage *msg)
 {
-	printf("Sending Message ");
+	sendto(sock, msg, sizeof(msg), 0, (struct sockaddr *)clientAddr, sizeof(*clientAddr));
 }
-// void recv_from_client(struct ClientMessage *msg); //Decides which request is performed
+//Decides which request is performed
+void recv_from_client(struct ClientMessage *msg, struct sockaddr_in *ClntAddr)
+{
+	//login
+	if((*msg).request_Type == 0)
+	{
+		signIn(msg,ClntAddr);
+	}
+	//post
+	else if((*msg).request_Type == 1)
+	{
+		send_msg(msg);
+	}
+	//get stored messages
+	else if((*msg).request_Type == 2)
+	{
+		get_msg(msg);
+	}
+	//follow a user
+	else if((*msg).request_Type == 3)
+	{
+		follow(msg);
+	}
+	//unfollow a user
+	else if((*msg).request_Type == 4)
+	{
+		unfollow(msg);
+	}
+	else if((*msg).request_Type == 5)
+	{
+		signOut(msg);
+	}
+	else
+	{
+		printf("%d has sent an invalid request",(*msg).UserID);
+	}
+} 

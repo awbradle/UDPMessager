@@ -42,16 +42,16 @@ void recv_from_server(); //Receive messages from the server
 int main(int argc, char *argv[])
 {
     exit_flag = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0); 
-    signIn();
-    recv_from_server();
-    return(0);
+    //signIn();
+    //recv_from_server();
+    //return(0);
     int sock;                        /* Socket descriptor */
     struct sockaddr_in echoServAddr; /* Echo server address */
     struct sockaddr_in fromAddr;     /* Source address of echo */
     unsigned short echoServPort;     /* Echo server port */
     unsigned int fromSize;           /* In-out of address size for recvfrom() */
     char *servIP;                    /* IP address of server */
-    struct ClientMessage client_MSG = {0,1234,5678,"Hello World\0"};                /* String to send to echo server */
+    struct ClientMessage client_MSG = {0,1234,5555,"Hello World\0"};                /* String to send to echo server */
     struct ServerMessage server_MSG;      /* Buffer for receiving echoed string */
     int echoStringLen;               /* Length of string to echo */
     int respStringLen;               /* Length of received response */
